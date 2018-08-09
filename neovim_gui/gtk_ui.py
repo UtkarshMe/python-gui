@@ -74,6 +74,48 @@ def Rectangle(x, y, w, h):
 class Grid(object):
     pass
 
+last_id = 0
+
+class WindowFrame(object):
+    """A simple tree data structure to manage window frame structure. Only used
+       when ext-windows is set. A frame can be a window or a frame."""
+
+    def __init__(self, grid = 0, vertical = 0):
+        self.grid = grid            # 0 if it is a frame, grid_id otherwise
+        self.vertical = vertical    # orientation of windows (when grid = 0)
+        self.children = []          # could be frames or windows
+        self.parent = None          # must be a frame
+        global last_id
+        last_id = last_id + 1
+        self.id = last_id
+
+    def add_child(self, child):
+        self.children.append(child)
+        child.parent = self
+
+    def remove_child(self, child):
+        self.children.remove(child)
+        child.parent = None
+        pass
+
+    def split_window(self, vert, new_win, old_win = None):
+        assert(new_win.grid != 0)
+        if self.grid == 0:                          # it is a frame of windows
+            if self.vertical == vert:               # just add as a child
+                self.add_child(old_win)
+                self.add_child(new_win)
+            else:                                   # add another frame as child
+                assert(old_win)
+                new_frame = WindowFrame(vertical = vert)
+                new_frame.add_child(old_win)
+                new_frame.add_child(new_win)
+                self.add_child(new_frame)
+        else:                                       # it is a window
+            parent = self.parent
+            parent.remove_child(self)
+            parent.split_window(vert, new_win, self)
+
+
 class GtkUI(object):
 
     """Gtk+ UI class."""
@@ -98,6 +140,7 @@ class GtkUI(object):
         self._curgrid = 0
         self.grids = {}
         self.g = None
+        self._top_frame = WindowFrame()     # only used when ext-windows is set
 
     def create_drawing_area(self, handle):
         g = Grid()
@@ -140,7 +183,11 @@ class GtkUI(object):
         if 'ext_float' in bridge._nvim.metadata['ui_options']:
             opts['ext_float'] = True
             self.has_float = True
-        bridge.attach(80, 24, rgb=True, ext_multigrid=True, **opts)
+        self.has_windows = False
+        if 'ext_windows' in bridge._nvim.metadata['ui_options']:
+            opts['ext_windows'] = True
+            self.has_windows = True
+        bridge.attach(80, 24, rgb=True, **opts)
         im_context = Gtk.IMMulticontext()
         im_context.set_use_preedit(False)  # TODO: preedit at cursor position
         im_context.connect('commit', self._gtk_input)
@@ -175,6 +222,11 @@ class GtkUI(object):
         self._window= self.g._window
 
     def _nvim_grid_resize(self, grid, columns, rows):
+        # first grid_resize is always for the first window
+        if self.has_windows and len(self._top_frame.children) == 0:
+            if grid == 2:  # should have grid id 2
+                self._top_frame.add_child(WindowFrame(grid))
+
         print("da")
         if grid not in self.grids:
             self.create_drawing_area(grid)
@@ -354,6 +406,13 @@ class GtkUI(object):
 
     def _nvim_set_icon(self, icon):
         self._window.set_icon_name(icon)
+
+    def _nvim_win_split(self, win1, grid1, win2, grid2, flags):
+        frame1 = get_child_frame(self._top_frame, grid1)
+        assert(frame1)
+        new_frame = WindowFrame(grid2)
+        frame1.split_window(flags, new_frame)
+        pass
 
     def _gtk_draw(self, g, wid, cr):
         if not g._screen:
@@ -655,3 +714,15 @@ def _parse_font(font, cr=None):
     pixels = layout.get_pixel_size()
     normal_width, _ = layout.get_size()
     return fd, pixels, normal_width, bold_width
+
+def get_child_frame(root, grid):
+    """Simple DFS for getting child frame"""
+    if root == None:
+        return None
+    if root.grid == grid:
+        return root
+    for child in root.children:
+        found = get_child_frame(child, grid)
+        if found:
+            return found
+    return None
