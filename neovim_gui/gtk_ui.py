@@ -80,8 +80,9 @@ class WindowFrame(object):
     """A simple tree data structure to manage window frame structure. Only used
        when ext-windows is set. A frame can be a window or a frame."""
 
-    def __init__(self, grid = 0, vertical = 0):
+    def __init__(self, grid = 0, win = 0, vertical = 0):
         self.grid = grid            # 0 if it is a frame, grid_id otherwise
+        self.win = win              # 0 if it is a frame, window_id otherwise
         self.vertical = vertical    # orientation of windows (when grid = 0)
         self.children = []          # could be frames or windows
         self.parent = None          # must be a frame
@@ -160,7 +161,10 @@ class GtkUI(object):
         self._curgrid = 0
         self.grids = {}
         self.g = None
-        self._top_frame = WindowFrame()     # only used when ext-windows is set
+
+        # only used when ext-windows is set
+        self._top_frame = WindowFrame()
+        self.curwin = None
 
     def create_drawing_area(self, handle):
         g = Grid()
@@ -238,14 +242,18 @@ class GtkUI(object):
         if g._screen is not None:
             # TODO: this should really be asserted on the nvim side
             row, col = min(row, g._screen.rows-1), min(col, g._screen.columns-1)
+            row, col = max(row, 0), max(col, 0)
             g._screen.cursor_goto(row,col)
         self._window= self.g._window
+        self.curwin = get_child_frame(self._top_frame, grid)
 
     def _nvim_grid_resize(self, grid, columns, rows):
         # first grid_resize is always for the first window
         if self.has_windows and len(self._top_frame.children) == 0:
             if grid == 2:  # should have grid id 2
-                self._top_frame.add_child(WindowFrame(grid))
+                # TODO: this is a big problem. hardcoding 1000 is wrong. Maybe
+                # move this all to win_position instead.
+                self._top_frame.add_child(WindowFrame(grid, 1000))
 
         print("da")
         if grid not in self.grids:
@@ -430,7 +438,7 @@ class GtkUI(object):
     def _nvim_win_split(self, win1, grid1, win2, grid2, flags):
         frame1 = get_child_frame(self._top_frame, grid1)
         assert(frame1)
-        new_frame = WindowFrame(grid2)
+        new_frame = WindowFrame(grid2, win2)
         frame1.split_window(flags, new_frame)
         pass
 
@@ -439,7 +447,7 @@ class GtkUI(object):
             self.curwin = self.curwin.get_left_sibling(count)
         else:
             self.curwin = self.curwin.get_right_sibling(count)
-        return self.curwin.grid
+        return self.curwin.win
 
     def _nvim_win_close(self, win, grid):
         frame = get_child_frame(self._top_frame, grid)

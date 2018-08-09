@@ -84,7 +84,12 @@ class UIBridge(object):
             self._sem.release()
 
         def on_request(method, args):
-            raise Exception('Not implemented')
+            if method == 'win_move_cursor':
+                result = self._ui._nvim_win_move_cursor(args[0], args[1])
+                print("win_move_cursor:", result)
+                return result
+            else:
+                raise Exception('Not implemented')
 
         def on_notification(method, updates):
             def apply_updates():
@@ -119,6 +124,8 @@ class UIBridge(object):
                     self._call(self._nvim.quit)
             if method == 'redraw':
                 self._ui.schedule_screen_update(apply_updates)
+        def on_error(msg):
+            print("--- ERROR:", msg, " ---")
 
-        self._nvim.run_loop(on_request, on_notification, on_setup)
+        self._nvim.run_loop(on_request, on_notification, on_setup, on_error)
         self._ui.quit()
