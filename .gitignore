@@ -5,3 +5,4 @@ neovim_gui/screen.so
 build/
 dist/
 *.pyc
+tags
