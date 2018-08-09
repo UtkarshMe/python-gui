@@ -161,7 +161,8 @@ class GtkUI(object):
             self._start_blinking()
             self._im_context.set_client_window(self.g._drawing_area.get_window())
             for g in self.grids.values():
-                g._drawing_area.queue_draw()
+                if g:
+                    g._drawing_area.queue_draw()
         GObject.idle_add(wrapper)
 
     def _nvim_grid_cursor_goto(self, grid, row, col):
@@ -323,6 +324,12 @@ class GtkUI(object):
             self._pango_draw(g, row, ccol, buf)
         g._cairo_context.restore()
 
+
+    def _nvim_grid_destroy(self, grid):
+        assert(self.grids[grid])
+        self.grids[grid]._drawing_area = None
+        self.grids[grid]._window = None
+        self.grids[grid] = None
 
     def _nvim_bell(self):
         self._window.get_window().beep()
