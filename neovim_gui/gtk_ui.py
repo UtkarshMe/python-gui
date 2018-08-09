@@ -115,6 +115,26 @@ class WindowFrame(object):
             parent.remove_child(self)
             parent.split_window(vert, new_win, self)
 
+    def get_left_sibling(self, count):
+        index = self.parent.children.index(self)
+        while count:
+            index += 1
+            if index >= len(self.parent.children):
+                index = 0
+            count -= 1
+        return self.parent.children[index]
+
+    def get_right_sibling(self, count):
+        index = self.parent.children.index(self)
+        while count:
+            index -= 1
+            if index <= 0:
+                index = len(self.parent.children) - 1
+            count -= 1
+        return self.parent.children[index]
+
+    def close(self):
+        self.parent.remove_child(self)
 
 class GtkUI(object):
 
@@ -413,6 +433,18 @@ class GtkUI(object):
         new_frame = WindowFrame(grid2)
         frame1.split_window(flags, new_frame)
         pass
+
+    def _nvim_win_move_cursor(self, direction, count):
+        if direction == 2:
+            self.curwin = self.curwin.get_left_sibling(count)
+        else:
+            self.curwin = self.curwin.get_right_sibling(count)
+        return self.curwin.grid
+
+    def _nvim_win_close(self, win, grid):
+        frame = get_child_frame(self._top_frame, grid)
+        assert(frame1)
+        frame.close()
 
     def _gtk_draw(self, g, wid, cr):
         if not g._screen:
