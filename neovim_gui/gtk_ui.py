@@ -324,6 +324,10 @@ class GtkUI(object):
             self._pango_draw(g, row, ccol, buf)
         g._cairo_context.restore()
 
+    def _nvim_win_position(self, win, grid, startrow, startcol, width, height):
+        g = self.grids[grid]
+        assert(g != None)
+        pass
 
     def _nvim_grid_destroy(self, grid):
         assert(self.grids[grid])
