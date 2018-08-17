@@ -178,6 +178,7 @@ class GtkUI(object):
         print("da")
         if grid not in self.grids:
             self.create_drawing_area(grid)
+            self._bridge.resize(grid, int(columns * 1.3), int(rows * 1.3))
         g = self.grids[grid]
         da = g._drawing_area
         # create FontDescription object for the selected font/size
