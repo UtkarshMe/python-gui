@@ -72,7 +72,72 @@ def Rectangle(x, y, w, h):
     return r
 
 class Grid(object):
-    pass
+    def __init__(self, gui, handle = 0):
+        self.handle = handle
+        self._resize_timer_id = None
+        self._font_size = gui._font_size
+        self._font_name = gui._font_name
+        self._create_drawing_area(gui)
+        self._pango_context = self._drawing_area.create_pango_context()
+        self._pending = [0, 0, 0]
+        self._screen = None
+        # create FontDescription object for the selected font/size
+        font_str = '{0} {1}'.format(self._font_name, self._font_size)
+        self._font, pixels, normal_width, bold_width = _parse_font(font_str)
+        # calculate the letter_spacing required to make bold have the same
+        # width as normal
+        self._bold_spacing = normal_width - bold_width
+        self._cell_pixel_width, self._cell_pixel_height = pixels
+
+    def _create_drawing_area(self, gui):
+        drawing_area = Gtk.DrawingArea()
+        drawing_area.connect('draw', partial(gui._gtk_draw, self))
+        window = Gtk.Window().new(Gtk.WindowType.TOPLEVEL)
+        window.add(drawing_area)
+        window.set_events(window.get_events() |
+                          Gdk.EventMask.BUTTON_PRESS_MASK |
+                          Gdk.EventMask.BUTTON_RELEASE_MASK |
+                          Gdk.EventMask.POINTER_MOTION_MASK |
+                          Gdk.EventMask.SCROLL_MASK)
+        window.connect('configure-event', partial(gui._gtk_configure, self))
+        window.connect('delete-event', gui._gtk_quit)
+        window.connect('key-press-event', gui._gtk_key)
+        window.connect('key-release-event', gui._gtk_key_release)
+        window.connect('button-press-event', partial(gui._gtk_button_press, self))
+        window.connect('button-release-event', partial(gui._gtk_button_release, self))
+        window.connect('motion-notify-event', partial(gui._gtk_motion_notify, self))
+        window.connect('scroll-event', partial(gui._gtk_scroll, self))
+        window.connect('focus-in-event', gui._gtk_focus_in)
+        window.connect('focus-out-event', gui._gtk_focus_out)
+        window.show_all()
+        self._drawing_area, self._window = drawing_area, window
+
+    def resize(self, columns, rows):
+        da = self._drawing_area
+        # calculate the total pixel width/height of the drawing area
+        pixel_width = self._cell_pixel_width * columns
+        pixel_height = self._cell_pixel_height * rows
+        gdkwin = da.get_window()
+        content = cairo.CONTENT_COLOR
+        self._cairo_surface = gdkwin.create_similar_surface(content,
+                                                            pixel_width,
+                                                            pixel_height)
+        self._cairo_context = cairo.Context(self._cairo_surface)
+        self._pango_layout = PangoCairo.create_layout(self._cairo_context)
+        self._pango_layout.set_alignment(Pango.Alignment.LEFT)
+        self._pango_layout.set_font_description(self._font)
+        self._pixel_width, self._pixel_height = pixel_width, pixel_height
+        self._screen = Screen(columns, rows)
+        self._window.resize(pixel_width, pixel_height)
+
+    def destroy(self):
+        # self._window.close()
+        self._window = None
+        self = None
+
+    def win_position(self, gui, startrow, startcol, width, height):
+        window = gui._window
+
 
 class GtkUI(object):
 
@@ -99,38 +164,6 @@ class GtkUI(object):
         self.grids = {}
         self.g = None
 
-    def create_drawing_area(self, handle):
-        g = Grid()
-        g.handle = handle
-        g._resize_timer_id = None
-        drawing_area = Gtk.DrawingArea()
-        drawing_area.connect('draw', partial(self._gtk_draw, g))
-        window = Gtk.Window()
-        window.add(drawing_area)
-        window.set_events(window.get_events() |
-                          Gdk.EventMask.BUTTON_PRESS_MASK |
-                          Gdk.EventMask.BUTTON_RELEASE_MASK |
-                          Gdk.EventMask.POINTER_MOTION_MASK |
-                          Gdk.EventMask.SCROLL_MASK)
-        window.connect('configure-event', partial(self._gtk_configure, g))
-        window.connect('delete-event', self._gtk_quit)
-        window.connect('key-press-event', self._gtk_key)
-        window.connect('key-release-event', self._gtk_key_release)
-        window.connect('button-press-event', partial(self._gtk_button_press, g))
-        window.connect('button-release-event', partial(self._gtk_button_release, g))
-        window.connect('motion-notify-event', partial(self._gtk_motion_notify, g))
-        window.connect('scroll-event', partial(self._gtk_scroll, g))
-        window.connect('focus-in-event', self._gtk_focus_in)
-        window.connect('focus-out-event', self._gtk_focus_out)
-        window.show_all()
-        g._pango_context = drawing_area.create_pango_context()
-        g._drawing_area = drawing_area
-        g._window = window
-        g._pending = [0, 0, 0]
-        g._screen = None
-
-        self.grids[handle] = g
-        return g
 
 
     def start(self, bridge):
@@ -145,7 +178,9 @@ class GtkUI(object):
         im_context.set_use_preedit(False)  # TODO: preedit at cursor position
         im_context.connect('commit', self._gtk_input)
         self._im_context = im_context
-        self.g = self.create_drawing_area(1)
+        # create and set first (default) grid
+        self.grids[1] = Grid(self, 1)
+        self.g = self.grids[1]
         self._window = self.g._window
         self._bridge = bridge
         Gtk.main()
@@ -175,36 +210,10 @@ class GtkUI(object):
         self._window= self.g._window
 
     def _nvim_grid_resize(self, grid, columns, rows):
-        print("da")
         if grid not in self.grids:
-            self.create_drawing_area(grid)
-            self._bridge.resize(grid, int(columns * 1.3), int(rows * 1.3))
-        g = self.grids[grid]
-        da = g._drawing_area
-        # create FontDescription object for the selected font/size
-        font_str = '{0} {1}'.format(self._font_name, self._font_size)
-        self._font, pixels, normal_width, bold_width = _parse_font(font_str)
-        # calculate the letter_spacing required to make bold have the same
-        # width as normal
-        self._bold_spacing = normal_width - bold_width
-        cell_pixel_width, cell_pixel_height = pixels
-        # calculate the total pixel width/height of the drawing area
-        pixel_width = cell_pixel_width * columns
-        pixel_height = cell_pixel_height * rows
-        gdkwin = da.get_window()
-        content = cairo.CONTENT_COLOR
-        g._cairo_surface = gdkwin.create_similar_surface(content,
-                                                            pixel_width,
-                                                            pixel_height)
-        g._cairo_context = cairo.Context(g._cairo_surface)
-        g._pango_layout = PangoCairo.create_layout(g._cairo_context)
-        g._pango_layout.set_alignment(Pango.Alignment.LEFT)
-        g._pango_layout.set_font_description(self._font)
-        g._pixel_width, g._pixel_height = pixel_width, pixel_height
-        self._cell_pixel_width = cell_pixel_width
-        self._cell_pixel_height = cell_pixel_height
-        g._screen = Screen(columns, rows)
-        g._window.resize(pixel_width, pixel_height)
+            self.grids[grid] = Grid(self, grid)
+            # self._bridge.resize(grid, int(columns * 1.3), int(rows * 1.3))
+        self.grids[grid].resize(columns, rows)
 
     def _nvim_grid_clear(self, grid):
         g = self.grids[grid]
@@ -328,13 +337,12 @@ class GtkUI(object):
     def _nvim_win_position(self, win, grid, startrow, startcol, width, height):
         g = self.grids[grid]
         assert(g != None)
-        pass
+        g.win_position(self, startrow, startcol, width, height)
 
     def _nvim_grid_destroy(self, grid):
         assert(self.grids[grid])
-        self.grids[grid]._drawing_area = None
-        self.grids[grid]._window = None
-        self.grids[grid] = None
+        g = self.grids[grid]
+        g.destroy()
 
     def _nvim_bell(self):
         self._window.get_window().beep()
@@ -379,16 +387,16 @@ class GtkUI(object):
             text, attrs = g._screen.get_cursor()
             self._pango_draw(g, row, col, [(text, attrs,)], cr=cr, cursor=True)
             x, y = self._get_coords(row, col)
-            currect = Rectangle(x, y, self._cell_pixel_width,
-                                self._cell_pixel_height)
+            currect = Rectangle(x, y, self.g._cell_pixel_width,
+                                self.g._cell_pixel_height)
             self._im_context.set_cursor_location(currect)
 
     def _gtk_configure(self, g, widget, event):
         def resize(*args):
             self._resize_timer_id = None
             width, height = g._window.get_size()
-            columns = width // self._cell_pixel_width
-            rows = height // self._cell_pixel_height
+            columns = width // self.g._cell_pixel_width
+            rows = height // self.g._cell_pixel_height
             if g._screen.columns == columns and g._screen.rows == rows:
                 return
             ## TODO: this must tell the grid
@@ -439,8 +447,8 @@ class GtkUI(object):
             button = 'Middle'
         elif event.button == 3:
             button = 'Right'
-        col = int(math.floor(event.x / self._cell_pixel_width))
-        row = int(math.floor(event.y / self._cell_pixel_height))
+        col = int(math.floor(event.x / self.g._cell_pixel_width))
+        row = int(math.floor(event.y / self.g._cell_pixel_height))
         input_str = _stringify_key(button + 'Mouse', event.state)
         if self.has_float:
             input_str += '<{},{},{}>'.format(g.handle, col, row)
@@ -457,8 +465,8 @@ class GtkUI(object):
     def _gtk_motion_notify(self, g, widget, event, *args):
         if not self._mouse_enabled or not self._pressed:
             return
-        col = int(math.floor(event.x / self._cell_pixel_width))
-        row = int(math.floor(event.y / self._cell_pixel_height))
+        col = int(math.floor(event.x / self.g._cell_pixel_width))
+        row = int(math.floor(event.y / self.g._cell_pixel_height))
         input_str = _stringify_key(self._pressed + 'Drag', event.state)
         if self.has_float:
             input_str += '<{},{},{}>'.format(g.handle, col, row)
@@ -469,8 +477,8 @@ class GtkUI(object):
     def _gtk_scroll(self, g, widget, event, *args):
         if not self._mouse_enabled:
             return
-        col = int(math.floor(event.x / self._cell_pixel_width))
-        row = int(math.floor(event.y / self._cell_pixel_height))
+        col = int(math.floor(event.x / self.g._cell_pixel_width))
+        row = int(math.floor(event.y / self.g._cell_pixel_height))
         if event.direction == Gdk.ScrollDirection.UP:
             key = 'ScrollWheelUp'
         elif event.direction == Gdk.ScrollDirection.DOWN:
@@ -521,8 +529,8 @@ class GtkUI(object):
         return x1, y1, x2, y2
 
     def _get_coords(self, row, col):
-        x = col * self._cell_pixel_width
-        y = row * self._cell_pixel_height
+        x = col * self.g._cell_pixel_width
+        y = row * self.g._cell_pixel_height
         return x, y
 
     def _pango_draw(self, g, row, col, data, cr=None, cursor=False):
@@ -539,8 +547,8 @@ class GtkUI(object):
             cr = g._cairo_context
         x, y = self._get_coords(row, col)
         if cursor and self._insert_cursor and g is self.g:
-            cr.rectangle(x, y, self._cell_pixel_width / 4,
-                         self._cell_pixel_height)
+            cr.rectangle(x, y, self.g._cell_pixel_width / 4,
+                         self.g._cell_pixel_height)
             cr.clip()
         cr.move_to(x, y)
         PangoCairo.update_layout(cr, g._pango_layout)
@@ -577,8 +585,8 @@ class GtkUI(object):
                         n['font_style'] = 'italic'
                     elif k == 'bold':
                         n['font_weight'] = 'bold'
-                        if self._bold_spacing:
-                            n['letter_spacing'] = str(self._bold_spacing)
+                        if self.g._bold_spacing:
+                            n['letter_spacing'] = str(self.g._bold_spacing)
                     elif k == 'underline':
                         n['underline'] = 'single'
             c = dict(n)
