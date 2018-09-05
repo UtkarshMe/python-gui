@@ -81,13 +81,7 @@ class Grid(object):
         self._pango_context = self._drawing_area.create_pango_context()
         self._pending = [0, 0, 0]
         self._screen = None
-        # create FontDescription object for the selected font/size
-        font_str = '{0} {1}'.format(self._font_name, self._font_size)
-        self._font, pixels, normal_width, bold_width = _parse_font(font_str)
-        # calculate the letter_spacing required to make bold have the same
-        # width as normal
-        self._bold_spacing = normal_width - bold_width
-        self._cell_pixel_width, self._cell_pixel_height = pixels
+        self.font_resize(self._font_size)
 
     def _create_drawing_area(self, gui):
         drawing_area = Gtk.DrawingArea()
@@ -130,6 +124,16 @@ class Grid(object):
         self._screen = Screen(columns, rows)
         self._window.resize(pixel_width, pixel_height)
 
+    def font_resize(self, new_font_size):
+        self._font_size = new_font_size
+        # create FontDescription object for the selected font/size
+        font_str = '{0} {1}'.format(self._font_name, self._font_size)
+        self._font, pixels, normal_width, bold_width = _parse_font(font_str)
+        # calculate the letter_spacing required to make bold have the same
+        # width as normal
+        self._bold_spacing = normal_width - bold_width
+        self._cell_pixel_width, self._cell_pixel_height = pixels
+
     def destroy(self):
         # self._window.close()
         self._window = None
@@ -163,6 +167,7 @@ class GtkUI(object):
         self._curgrid = 0
         self.grids = {}
         self.g = None
+        self.default = None
 
 
 
@@ -181,6 +186,7 @@ class GtkUI(object):
         # create and set first (default) grid
         self.grids[1] = Grid(self, 1)
         self.g = self.grids[1]
+        self.default = self.grids[1]
         self._window = self.g._window
         self._bridge = bridge
         Gtk.main()
@@ -212,7 +218,10 @@ class GtkUI(object):
     def _nvim_grid_resize(self, grid, columns, rows):
         if grid not in self.grids:
             self.grids[grid] = Grid(self, grid)
-            # self._bridge.resize(grid, int(columns * 1.3), int(rows * 1.3))
+            if grid != 1:
+                self._bridge.resize(grid, int(columns * 1.3), int(rows * 1.3))
+                # self.grids[grid]._font_size -= 5
+                self.grids[grid].font_resize(self.grids[grid]._font_size)
         self.grids[grid].resize(columns, rows)
 
     def _nvim_grid_clear(self, grid):
